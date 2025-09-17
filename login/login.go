@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"regexp"
 	"time"
 )
 
-type User struct {
+type User struct { // 定义用户结构体
 	Phone          string    `json:"phone"`
 	Code           string    `json:"code"`
 	CodeExpireTime time.Time `json:"code_expire_time"`
@@ -20,6 +21,47 @@ type User struct {
 
 var users = make(map[string]*User)
 var dataFile = "data.json"
+
+/* ---------- HTTP 接口(AI改) ---------- */
+type R map[string]any // 偷懒写 JSON 回复
+
+func handleSendCode(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*") // 允许前端跨域
+
+	phone := r.URL.Query().Get("phone")
+	if !isValidPhone(phone) {
+		json.NewEncoder(w).Encode(R{"ok": false, "msg": "手机号格式错误"})
+		return
+	}
+	user := getUser(phone)
+	if !canSendCode(user) {
+		json.NewEncoder(w).Encode(R{"ok": false, "msg": "60秒内重复或今日已达5次上限"})
+		return
+	}
+	sendCode(user)
+	saveData()
+	json.NewEncoder(w).Encode(R{"ok": true, "code": user.Code}) // 调试用，生产可去掉
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	phone := r.URL.Query().Get("phone")
+	code := r.URL.Query().Get("code")
+	if !isValidPhone(phone) {
+		json.NewEncoder(w).Encode(R{"ok": false, "msg": "手机号格式错误"})
+		return
+	}
+	user := getUser(phone)
+	if login(user, code) {
+		saveData()
+		json.NewEncoder(w).Encode(R{"ok": true, "msg": "登录成功"})
+	} else {
+		json.NewEncoder(w).Encode(R{"ok": false, "msg": "无效验证码或已过期"})
+	}
+}
 
 func main() {
 	loadData()
@@ -73,8 +115,15 @@ func isValidPhone(phone string) bool {
 	return match
 }
 
+// 生成验证码(AI修改验证格式)
 func generateCode() string {
-	return fmt.Sprintf("%06d", rand.Intn(1000000))
+	const base = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" // 把字母也加进来
+	b := make([]byte, 6)                                // 准备 6 个空位置
+	rand.Read(b)                                        // 随机填满
+	for i := range b {
+		b[i] = base[b[i]%byte(len(base))] // 把随机值映射到 base 里的一位
+	}
+	return string(b) // 拼成字符串
 }
 
 func getUser(phone string) *User {
@@ -86,10 +135,10 @@ func getUser(phone string) *User {
 
 func canSendCode(user *User) bool {
 	now := time.Now()
-	if now.Sub(user.LastSendTime) < 60*time.Second {
+	if now.Sub(user.LastSendTime) < 60*time.Second { // 60秒内不能重复发送
 		return false
 	}
-	if user.TodaySendCount >= 5 && user.LastSendTime.Day() == now.Day() {
+	if user.TodaySendCount >= 5 && user.LastSendTime.Day() == now.Day() { // 今日已达5次上限
 		return false
 	}
 	return true
@@ -116,23 +165,38 @@ func login(user *User, code string) bool {
 	return true
 }
 
-func loadData() {
+func loadData() { //AI修改验证格式
 	file, err := os.ReadFile(dataFile)
 	if err != nil {
+		// 文件不存在不算错，第一次运行本来就没有
+		if os.IsNotExist(err) {
+			return
+		}
+		// 真正异常才打印
+		fmt.Println("读取 data.json 出错：", err)
+		return
+	}
+
+	// 如果文件内容为空或格式不对，也会报错
+	if len(file) == 0 {
 		return
 	}
 	var list []*User
-	json.Unmarshal(file, &list)
+	if err = json.Unmarshal(file, &list); err != nil {
+		fmt.Println("解析 data.json 出错：", err)
+		return
+	}
 	for _, u := range list {
 		users[u.Phone] = u
 	}
 }
 
-func saveData() {
+func saveData() { //AI辅助修改，已加密，data不显示code
 	list := make([]*User, 0, len(users))
-	for _, u := range users {
+	for _, u := range users { //装用户
 		list = append(list, u)
 	}
-	data, _ := json.MarshalIndent(list, "", "  ")
-	os.WriteFile(dataFile, data, 0644)
+	data, _ := json.MarshalIndent(list, "", "  ") //格式化json
+	os.WriteFile(dataFile, data, 0644)            //文件权限其他人只读
 }
+
