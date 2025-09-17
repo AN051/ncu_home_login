@@ -7,20 +7,4 @@
     "today_send_count": 1,
     "is_logged_in": false
   },
-  {
-    "phone": "13215642902",
-    "code": "354116",
-    "code_expire_time": "2025-09-17T00:06:27.2375479+08:00",
-    "last_send_time": "2025-09-17T00:01:27.2375479+08:00",
-    "today_send_count": 4,
-    "is_logged_in": false
-  },
-  {
-    "phone": "13215622902",
-    "code": "",
-    "code_expire_time": "0001-01-01T00:00:00Z",
-    "last_send_time": "0001-01-01T00:00:00Z",
-    "today_send_count": 0,
-    "is_logged_in": false
-  }
 ]
